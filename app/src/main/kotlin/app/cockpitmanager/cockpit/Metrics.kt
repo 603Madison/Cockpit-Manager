@@ -115,7 +115,7 @@ fun CockpitTransport.metrics(specs: List<MetricSpec>, intervalMillis: Int = 2000
         for (event in channel.events) {
             when (event) {
                 is ChannelEvent.Data -> decoder.feed(event.text).forEach { send(it) }
-                is ChannelEvent.Control -> Unit
+                is ChannelEvent.Control, is ChannelEvent.Bytes -> Unit
                 is ChannelEvent.Closed ->
                     if (event.problem != null) close(CockpitException(Problems.describe(event.problem, event.string("message")), event.problem)) else close()
             }

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0]
+
+- **Podman containers**, through the same Podman API and sockets as Cockpit's own Podman page
+  (cockpit-podman): your rootless containers and, with administrative access, the system's.
+  Grouped by pod, with live CPU and memory, search, and start, stop, restart, pause, resume and
+  delete. Each container shows its image, command, ports, networks, volumes, health and live logs.
+  Containers run as systemd services (Quadlets) are started, stopped and restarted through
+  systemd, as cockpit-podman does.
+- **Virtual machines**, through libvirt-dbus like Cockpit's Virtual machines page
+  (cockpit-machines): system and session VMs with their OS, vCPUs, memory, disks, network and IP
+  addresses, live CPU use, run, shut down, reboot, pause, resume, force shut down / reboot, and
+  autostart.
+- The Podman and VMs tabs appear only on servers that have them; the Overview gains a Workloads
+  summary.
+
 ## [1.0.0]
 
 First release.

@@ -29,6 +29,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -72,6 +73,9 @@ data class InitInfo(val host: String, val osRelease: Map<String, String>, val ca
 
 sealed interface ChannelEvent {
     data class Data(val text: String) : ChannelEvent
+
+    /** Payload on a binary ("binary": "raw") channel, e.g. container logs. */
+    class Bytes(val data: ByteArray) : ChannelEvent
     data class Control(val message: JsonObject) : ChannelEvent
 
     /** Always the last event. [problem] is null for a normal close. */
@@ -82,7 +86,7 @@ sealed interface ChannelEvent {
 }
 
 /** One open channel. Events arrive in [events] until a [ChannelEvent.Closed]. */
-class CockpitChannel internal constructor(val id: String, private val transport: CockpitTransport) {
+class CockpitChannel internal constructor(val id: String, private val transport: CockpitTransport, val binary: Boolean = false) {
     private val inbox = Channel<ChannelEvent>(Channel.UNLIMITED)
     val events: ReceiveChannel<ChannelEvent> get() = inbox
 
@@ -91,7 +95,12 @@ class CockpitChannel internal constructor(val id: String, private val transport:
         private set
 
     fun send(data: String) {
-        if (!isClosed) transport.sendFrame(Frame(id, data))
+        if (isClosed) return
+        if (binary) send(data.toByteArray(Charsets.UTF_8)) else transport.sendFrame(Frame(id, data))
+    }
+
+    fun send(data: ByteArray) {
+        if (!isClosed) transport.sendBinary(id, data)
     }
 
     fun control(command: String, fields: Map<String, JsonElement> = emptyMap()) {
@@ -184,7 +193,8 @@ class CockpitTransport(
     /** Opens a channel with Cockpit "open" options (payload, spawn, bus, ...). */
     fun channel(options: Map<String, JsonElement>, superuser: Superuser = Superuser.NONE): CockpitChannel {
         val id = "$seed${counter.incrementAndGet()}"
-        val channel = CockpitChannel(id, this)
+        val binary = (options["binary"] as? JsonPrimitive)?.contentOrNull == "raw"
+        val channel = CockpitChannel(id, this, binary)
         if (state.value is State.Closed) {
             channel.deliver(ChannelEvent.Closed("disconnected", JsonObject(emptyMap())))
             return channel
@@ -202,6 +212,21 @@ class CockpitTransport(
 
     internal fun sendFrame(frame: Frame) {
         socket?.send(frame.encode())
+    }
+
+    internal fun sendBinary(channel: String, data: ByteArray) {
+        socket?.send((channel.toByteArray(Charsets.UTF_8) + '\n'.code.toByte() + data).toByteString())
+    }
+
+    /** Binary WebSocket messages carry binary channels' data: channel id, newline, raw bytes. */
+    internal fun dispatchBinary(message: ByteArray) {
+        gotMessage = true
+        val nl = message.indexOf('\n'.code.toByte())
+        if (nl <= 0) return
+        val id = String(message, 0, nl, Charsets.UTF_8)
+        val channel = channels[id] ?: return
+        val payload = message.copyOfRange(nl + 1, message.size)
+        channel.deliver(if (channel.binary) ChannelEvent.Bytes(payload) else ChannelEvent.Data(String(payload, Charsets.UTF_8)))
     }
 
     internal fun forget(id: String) {
@@ -231,7 +256,8 @@ class CockpitTransport(
         gotMessage = true
         val frame = Frame.parse(text) ?: return
         if (!frame.isControl) {
-            channels[frame.channel]?.deliver(ChannelEvent.Data(frame.payload))
+            val channel = channels[frame.channel] ?: return
+            channel.deliver(if (channel.binary) ChannelEvent.Bytes(frame.payload.toByteArray(Charsets.UTF_8)) else ChannelEvent.Data(frame.payload))
             return
         }
         val control = runCatching { Json.parseToJsonElement(frame.payload).jsonObject }.getOrNull() ?: return
@@ -280,7 +306,7 @@ class CockpitTransport(
 
         override fun onMessage(webSocket: WebSocket, text: String) = dispatch(text)
 
-        override fun onMessage(webSocket: WebSocket, bytes: ByteString) = dispatch(bytes.utf8())
+        override fun onMessage(webSocket: WebSocket, bytes: ByteString) = dispatchBinary(bytes.toByteArray())
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             webSocket.close(1000, null)

@@ -71,4 +71,12 @@ object CockpitIcons {
     val Logout: ImageVector by lazy { icon("logout", "M10,4.5 h-4 a1.5,1.5 0 0,0 -1.5,1.5 v12 a1.5,1.5 0 0,0 1.5,1.5 h4 M14.5,8 l4,4 l-4,4 M18.5,12 h-9.5") }
 
     val Swap: ImageVector by lazy { icon("swap", "M7,4 v15 M4,16 l3,3 l3,-3 M17,20 v-15 M14,8 l3,-3 l3,3") }
+
+    /** A box, for containers. */
+    val Container: ImageVector by lazy { icon("container", "M12,3 l8,4.5 v9 l-8,4.5 l-8,-4.5 v-9 z M4,7.5 l8,4.5 l8,-4.5 M12,12 v9") }
+
+    /** A screen on a stand, for virtual machines. */
+    val Machine: ImageVector by lazy { icon("machine", "M4,4.5 h16 a1,1 0 0,1 1,1 v10 a1,1 0 0,1 -1,1 h-16 a1,1 0 0,1 -1,-1 v-10 a1,1 0 0,1 1,-1 z M8.5,20 h7 M12,16.5 v3.5") }
+
+    val Pause: ImageVector by lazy { icon("pause", "M9,6 v12 M15,6 v12", width = 2.4f) }
 }

@@ -60,7 +60,7 @@ class TerminalSession(private val transport: CockpitTransport, private val scope
                         emulator.feed(event.text)
                         _version.value = emulator.version
                     }
-                    is ChannelEvent.Control -> Unit
+                    is ChannelEvent.Control, is ChannelEvent.Bytes -> Unit
                     is ChannelEvent.Closed -> {
                         val status = event.int("exit-status")
                         _state.value = State.Ended(

@@ -44,13 +44,24 @@ import app.cockpitmanager.ui.components.DetailRow
 import app.cockpitmanager.ui.components.ErrorCard
 import app.cockpitmanager.ui.components.Hint
 import app.cockpitmanager.ui.components.InfoCard
+import app.cockpitmanager.ui.components.NavRow
 import app.cockpitmanager.ui.components.Pill
 import app.cockpitmanager.ui.components.Sparkline
 import app.cockpitmanager.ui.components.UsageBar
+import app.cockpitmanager.ui.containers.ContainersState
+import app.cockpitmanager.ui.machines.MachinesState
 import app.cockpitmanager.ui.servers.ConfirmDialog
 import app.cockpitmanager.ui.theme.AppTheme
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+/** What the Overview summarizes from the Containers and VMs tabs, when the server has them. */
+data class Workloads(
+    val podman: Boolean,
+    val machines: Boolean,
+    val containers: ContainersState,
+    val vms: MachinesState,
+)
 
 @Composable
 fun OverviewScreen(
@@ -58,6 +69,9 @@ fun OverviewScreen(
     onOpenFailed: () -> Unit,
     onPower: suspend (PowerAction) -> Result<Unit>,
     modifier: Modifier = Modifier,
+    workloads: Workloads? = null,
+    onOpenContainers: () -> Unit = {},
+    onOpenMachines: () -> Unit = {},
 ) {
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     var powerError by remember { mutableStateOf<String?>(null) }
@@ -73,6 +87,7 @@ fun OverviewScreen(
         state.error?.let { ErrorCard(it) }
         state.usageError?.let { ErrorCard("Live usage isn't available: $it") }
         UsageCard(state)
+        if (workloads != null && (workloads.podman || workloads.machines)) WorkloadsCard(workloads, onOpenContainers, onOpenMachines)
         if (state.mounts.isNotEmpty()) StorageCard(state.mounts)
         TrafficCard(state)
         state.facts?.let { SystemCard(state) }
@@ -279,5 +294,41 @@ private fun SystemCard(state: OverviewState) {
         DetailRow("Kernel", f.kernel)
         DetailRow("Architecture", f.arch)
         DetailRow("Memory", Format.bytes(f.memTotalBytes))
+    }
+}
+
+/** "4 running · 1 paused · 2 stopped", leaving out zeros but always saying something. */
+private fun counts(vararg parts: Pair<Int, String>): String =
+    parts.filter { it.first > 0 }.joinToString(" · ") { "${it.first} ${it.second}" }.ifEmpty { "None yet" }
+
+@Composable
+private fun WorkloadsCard(w: Workloads, onOpenContainers: () -> Unit, onOpenMachines: () -> Unit) {
+    InfoCard("Workloads") {
+        if (w.podman) {
+            val c = w.containers
+            NavRow(
+                title = "Containers",
+                subtitle = when {
+                    c.loaded && c.error != null && c.total == 0 -> c.error
+                    c.loaded -> counts(c.running - c.paused to "running", c.paused to "paused", c.stopped to "stopped")
+                    else -> "Loading…"
+                },
+                onClick = onOpenContainers,
+                leading = CockpitIcons.Container,
+            )
+        }
+        if (w.machines) {
+            val v = w.vms
+            NavRow(
+                title = "Virtual machines",
+                subtitle = when {
+                    v.loaded && v.error != null && v.vms.isEmpty() -> v.error
+                    v.loaded -> counts(v.running - v.paused to "running", v.paused to "paused", v.vms.size - v.running to "shut off")
+                    else -> "Loading…"
+                },
+                onClick = onOpenMachines,
+                leading = CockpitIcons.Machine,
+            )
+        }
     }
 }

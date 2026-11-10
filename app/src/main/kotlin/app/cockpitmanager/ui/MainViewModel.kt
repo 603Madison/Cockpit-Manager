@@ -19,13 +19,21 @@ import app.cockpitmanager.cockpit.ServerTrust
 import app.cockpitmanager.data.AppSettings
 import app.cockpitmanager.data.ServerConfig
 import app.cockpitmanager.system.JournalRepository
+import app.cockpitmanager.system.MachinesClient
+import app.cockpitmanager.system.PodmanServices
+import app.cockpitmanager.system.VmConnection
+import app.cockpitmanager.system.hasAdminAccess
 import app.cockpitmanager.system.ServicesRepository
 import app.cockpitmanager.terminal.TerminalSession
+import app.cockpitmanager.ui.containers.ContainersModel
 import app.cockpitmanager.ui.logs.LogsModel
+import app.cockpitmanager.ui.machines.MachinesModel
 import app.cockpitmanager.ui.overview.OverviewModel
 import app.cockpitmanager.ui.services.ServicesModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,10 +58,28 @@ class Session(
     private val servicesRepository = ServicesRepository(transport, scope)
     private val journal = JournalRepository(transport)
 
+    private val admin = scope.async(start = CoroutineStart.LAZY) { transport.hasAdminAccess() }
+
     val overview = OverviewModel(transport, init, servicesRepository, scope)
     val services = ServicesModel(servicesRepository, journal, scope)
     val logs = LogsModel(journal, scope)
     val terminal = TerminalSession(transport, scope)
+    val containers = ContainersModel(transport, { admin.await() }, scope)
+    val machines = MachinesModel(transport, scope)
+
+    /** What this server has beyond the basics, which decides the tabs. */
+    data class Features(val checked: Boolean = false, val podman: Boolean = false, val machines: Boolean = false)
+
+    private val _features = MutableStateFlow(Features())
+    val features: StateFlow<Features> = _features.asStateFlow()
+
+    init {
+        scope.launch {
+            val podman = async { PodmanServices.installed(transport) }
+            val vms = async { VmConnection.entries.any { runCatching { MachinesClient.available(transport, scope, it.bus) }.getOrDefault(false) } }
+            _features.value = Features(checked = true, podman = podman.await(), machines = vms.await())
+        }
+    }
 
     /** Set when the app closes the session on purpose, so that isn't reported as a lost connection. */
     @Volatile

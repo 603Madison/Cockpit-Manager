@@ -22,6 +22,26 @@ import app.cockpitmanager.system.ServiceUnit
 import app.cockpitmanager.system.SystemFacts
 import app.cockpitmanager.terminal.TerminalSession
 import app.cockpitmanager.ui.components.Backdrop
+import app.cockpitmanager.ui.overview.Workloads
+import app.cockpitmanager.ui.machines.VmUsage
+import app.cockpitmanager.ui.machines.MachinesState
+import app.cockpitmanager.ui.machines.MachinesScreen
+import app.cockpitmanager.ui.machines.MachineDetailScreen
+import app.cockpitmanager.ui.containers.ContainersState
+import app.cockpitmanager.ui.containers.ContainersScreen
+import app.cockpitmanager.ui.containers.ContainerFilter
+import app.cockpitmanager.ui.containers.ContainerDetailState
+import app.cockpitmanager.ui.containers.ContainerDetailScreen
+import app.cockpitmanager.system.VmState
+import app.cockpitmanager.system.VmInterface
+import app.cockpitmanager.system.VmDisk
+import app.cockpitmanager.system.VmConnection
+import app.cockpitmanager.system.VirtualMachine
+import app.cockpitmanager.system.PodmanOwner
+import app.cockpitmanager.system.PodmanContainer
+import app.cockpitmanager.system.DomainDescription
+import app.cockpitmanager.system.ContainerStats
+import app.cockpitmanager.system.ContainerDetails
 import app.cockpitmanager.ui.logs.LogsScreen
 import app.cockpitmanager.ui.logs.LogsState
 import app.cockpitmanager.ui.overview.Mount
@@ -87,7 +107,7 @@ class ScreenshotTest {
     @Composable
     private fun Chrome(tab: SessionTab, failed: Int = 2, content: @Composable () -> Unit) {
         SessionChrome(
-            server = server, selected = tab, failedUnits = failed, lostMessage = null,
+            server = server, selected = tab, tabs = SessionTab.entries, failedUnits = failed, lostMessage = null,
             snackbar = remember { SnackbarHostState() },
             onTab = {}, onSettings = {}, onDisconnect = {}, onReconnect = {}, content = content,
         )
@@ -145,7 +165,7 @@ class ScreenshotTest {
         uptimeSeconds = 12 * 86_400L + 4 * 3600, load = listOf(0.82, 0.64, 0.51),
     )
 
-    private fun wave(n: Int, base: Float, amp: Float, phase: Float = 0f) = List(n) { base + amp * sin(it / 6f + phase).toFloat() + amp * 0.4f * sin(it / 1.7f).toFloat() }
+    private fun wave(n: Int, base: Float, amp: Float, phase: Float = 0f) = List(n) { base + amp * sin(it / 6f + phase) + amp * 0.4f * sin(it / 1.7f) }
 
     private val overview = OverviewState(
         facts = facts,
@@ -173,7 +193,11 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w400dp-h1900dp-xxhdpi")
     fun overviewLight() {
-        render(dark = false) { Chrome(SessionTab.OVERVIEW) { OverviewScreen(overview, {}, { Result.success(Unit) }) } }
+        render(dark = false) {
+            Chrome(SessionTab.OVERVIEW) {
+                OverviewScreen(overview, {}, { Result.success(Unit) }, workloads = Workloads(true, true, containersState, machinesState))
+            }
+        }
         save("overview_light")
     }
 
@@ -318,5 +342,119 @@ class ScreenshotTest {
     fun settings() {
         render(dark = false) { SettingsScreen(AppSettings(), "1.0.0", {}, {}) }
         save("settings")
+    }
+
+    // ---- Containers ----
+
+    private fun container(
+        id: String, name: String, image: String, state: String, owner: PodmanOwner = PodmanOwner.SYSTEM,
+        pod: String? = null, exit: Int = 0, unit: String? = null, ports: List<String> = emptyList(), minutes: Long = 90,
+    ) = PodmanContainer(
+        id = id.padEnd(64, '0'), name = name, image = image, command = "", state = state,
+        createdMillis = now - minutes * 120_000, startedMillis = now - minutes * 60_000,
+        exitedMillis = if (state == "exited") now - minutes * 30_000 else null, exitCode = exit,
+        podId = pod, podName = pod, ports = ports, owner = owner, isInfra = false, systemdUnit = unit,
+    )
+
+    private val containerList = listOf(
+        container("a1", "jellyfin", "docker.io/jellyfin/jellyfin:latest", "running", ports = listOf("8096 → 8096/tcp"), minutes = 4000, unit = "jellyfin.service"),
+        container("a2", "caddy", "docker.io/library/caddy:2", "running", ports = listOf("443 → 443/tcp", "80 → 80/tcp"), minutes = 4000),
+        container("a3", "home-assistant", "ghcr.io/home-assistant/home-assistant:stable", "running", minutes = 700, unit = "home-assistant.service"),
+        container("a4", "backup", "docker.io/restic/restic:latest", "exited", exit = 1, minutes = 600),
+        container("a5", "nextcloud-app", "docker.io/library/nextcloud:29-apache", "running", pod = "nextcloud", minutes = 2000),
+        container("a6", "nextcloud-db", "docker.io/library/mariadb:11", "running", pod = "nextcloud", minutes = 2000),
+        container("a7", "nextcloud-redis", "docker.io/library/redis:7", "paused", pod = "nextcloud", minutes = 2000),
+        container("a8", "toolbox", "registry.fedoraproject.org/fedora-toolbox:41", "exited", owner = PodmanOwner.USER, minutes = 5000),
+    )
+
+    private val containersState = ContainersState(
+        loading = false, loaded = true, containers = containerList, filter = ContainerFilter.ALL,
+        stats = mapOf(
+            "SYSTEM:${"a1".padEnd(64, '0')}" to ContainerStats(3.4, 612L * 1024 * 1024, 32L * 1024 * 1024 * 1024, 52_000_000, 8_400_000_000, 120_000_000, 40_000_000, 31),
+            "SYSTEM:${"a2".padEnd(64, '0')}" to ContainerStats(0.2, 38L * 1024 * 1024, null, 1_000_000, 900_000, 0, 0, 9),
+            "SYSTEM:${"a3".padEnd(64, '0')}" to ContainerStats(1.8, 402L * 1024 * 1024, null, 0, 0, 0, 0, 24),
+            "SYSTEM:${"a5".padEnd(64, '0')}" to ContainerStats(0.6, 210L * 1024 * 1024, null, 0, 0, 0, 0, 12),
+            "SYSTEM:${"a6".padEnd(64, '0')}" to ContainerStats(0.3, 180L * 1024 * 1024, null, 0, 0, 0, 0, 14),
+        ),
+    )
+
+    @Test
+    fun containersLight() {
+        render(dark = false) {
+            Chrome(SessionTab.CONTAINERS) { ContainersScreen(containersState, {}, {}, {}, {}) }
+        }
+        save("containers_light")
+    }
+
+    @Test
+    fun containersDark() {
+        render(dark = true) {
+            Chrome(SessionTab.CONTAINERS) { ContainersScreen(containersState.copy(filter = ContainerFilter.RUNNING), {}, {}, {}, {}) }
+        }
+        save("containers_dark")
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h1500dp-xxhdpi")
+    fun containerDetail() {
+        val c = containerList.first()
+        val details = ContainerDetails(
+            imageName = c.image, command = "/jellyfin/jellyfin", createdMillis = c.createdMillis, startedMillis = c.startedMillis,
+            finishedMillis = null, exitCode = 0, error = null, health = "healthy", restartPolicy = "always", restartCount = 0,
+            ports = c.ports, networks = listOf("podman" to "10.88.0.4"),
+            mounts = listOf("/srv/media → /media (read-only)", "jellyfin-config → /config"), tty = false, systemdUnit = c.systemdUnit,
+        )
+        val logs = listOf(
+            "[19:41:02] [INF] [12] Main: Jellyfin version: 10.10.3",
+            "[19:41:05] [INF] [12] Emby.Server.Implementations.ApplicationHost: Running startup tasks",
+            "[19:41:09] [INF] [7] Jellyfin.Networking.Manager.NetworkManager: Defined LAN addresses: [192.168.1.0/24]",
+            "[19:42:31] [INF] [28] Jellyfin.Api.Auth: Authentication request for \"admin\" has succeeded.",
+            "[19:44:10] [WRN] [31] MediaBrowser.MediaEncoding: Transcoding: ffmpeg exited with code 0",
+        )
+        render(dark = false) {
+            ContainerDetailScreen(c, ContainerDetailState(c.key, details, logs), containersState.stats[c.key], null, {}, {})
+        }
+        save("container_detail")
+    }
+
+    // ---- Virtual machines ----
+
+    private fun vm(name: String, title: String?, state: VmState, os: String, vcpus: Int, gib: Long, autostart: Boolean = false) = VirtualMachine(
+        path = "/org/libvirt/QEMU/domain/_$name", connection = VmConnection.SYSTEM, name = name, uuid = "6cace387-a6ff-48c6-a867-74e83b68f750",
+        state = state, persistent = true, autostart = autostart,
+        description = DomainDescription(
+            name = name, title = title, description = null, vcpus = vcpus, memoryBytes = gib * 1024 * 1024 * 1024,
+            currentMemoryBytes = gib * 1024 * 1024 * 1024, osId = os, arch = "x86_64", machine = "pc-q35-9.1",
+            disks = listOf(VmDisk("vda", "disk", "/var/lib/libvirt/images/$name.qcow2")),
+            interfaces = listOf(VmInterface("52:54:00:6b:3c:58", "default", "virtio")), graphics = listOf("VNC"),
+        ),
+    )
+
+    private val vmList = listOf(
+        vm("rhel10-build", "RHEL 10 build box", VmState.RUNNING, "http://redhat.com/rhel/10.0", 4, 8, autostart = true),
+        vm("win11", "Windows 11", VmState.RUNNING, "http://microsoft.com/win/11", 4, 16),
+        vm("fedora-41-test", null, VmState.PAUSED, "http://fedoraproject.org/fedora/41", 2, 4),
+        vm("ubuntu-lab", null, VmState.SHUT_OFF, "http://ubuntu.com/ubuntu/24.04", 2, 4),
+    )
+
+    private val machinesState = MachinesState(
+        loading = false, loaded = true, vms = vmList,
+        usage = mapOf(vmList[0].key to VmUsage(23.0, 3L * 1024 * 1024 * 1024, null), vmList[1].key to VmUsage(4.0, null, 9L * 1024 * 1024 * 1024)),
+    )
+
+    @Test
+    fun machinesLight() {
+        render(dark = false) { Chrome(SessionTab.MACHINES) { MachinesScreen(machinesState, {}, {}, {}) } }
+        save("machines_light")
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h1300dp-xxhdpi")
+    fun machineDetailDark() {
+        val v = vmList.first()
+        render(dark = true) {
+            MachineDetailScreen(v, machinesState.usage[v.key], listOf("192.168.122.48"), null, false, {}, {}, {})
+        }
+        save("machine_detail")
     }
 }

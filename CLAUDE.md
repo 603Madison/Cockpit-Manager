@@ -33,3 +33,15 @@ each release.
   systemd to socket-activate it), and run `/usr/lib/cockpit/cockpit-ws --no-tls --port 9090
   --address 127.0.0.1`. systemd and journald don't run in the sandbox, so services and logs are
   covered by parser tests instead.
+- Podman for `LiveWorkloadsTest`: `apt-get install podman runc busybox-static`; containers only
+  run with `runtime = "runc"` and `cgroup_manager = "cgroupfs"` under `[engine]` in
+  `/etc/containers/containers.conf`. Import a tiny image (tar a dir holding `/bin/busybox` plus
+  `sh`/`sleep` symlinks, then `podman import` it) and start the API with
+  `podman system service --time=0 unix:///run/podman/podman.sock`. There's no user session, so
+  only system containers can be tested.
+- libvirt: `apt-get install libvirt-daemon-system libvirt-dbus qemu-system-x86`; start the system
+  bus (`dbus-daemon --system --fork`), `virtlogd -d`, `libvirtd -d`, define a small `type='qemu'`
+  domain with `virsh define`, and run `/usr/sbin/libvirt-dbus --system`. QEMU runs without KVM.
+- Follow the Red Hat plugins when touching Podman or VMs: cockpit-podman's `src/rest.ts` and
+  `src/client.ts`, and cockpit-machines' `src/libvirtApi/`. The owner uses those plugins, so the
+  app should show and do the same things.

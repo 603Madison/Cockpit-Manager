@@ -58,8 +58,13 @@ import app.cockpitmanager.data.ServerConfig
 import app.cockpitmanager.ui.components.Backdrop
 import app.cockpitmanager.ui.components.CockpitIcons
 import app.cockpitmanager.ui.components.ErrorCard
+import app.cockpitmanager.ui.containers.ContainerDetailScreen
+import app.cockpitmanager.ui.containers.ContainersScreen
 import app.cockpitmanager.ui.logs.LogsScreen
+import app.cockpitmanager.ui.machines.MachineDetailScreen
+import app.cockpitmanager.ui.machines.MachinesScreen
 import app.cockpitmanager.ui.overview.OverviewScreen
+import app.cockpitmanager.ui.overview.Workloads
 import app.cockpitmanager.ui.servers.ConnectionDialogs
 import app.cockpitmanager.ui.servers.ServerEditScreen
 import app.cockpitmanager.ui.servers.ServersScreen
@@ -117,6 +122,10 @@ private object Routes {
     const val SERVICE = "service"
     const val LOGS = "logs"
     const val TERMINAL = "terminal"
+    const val CONTAINERS = "containers"
+    const val CONTAINER = "container"
+    const val MACHINES = "machines"
+    const val MACHINE = "machine"
 }
 
 @Composable
@@ -171,6 +180,8 @@ private fun ServersRoot(vm: MainViewModel, connection: ConnectionState) {
 enum class SessionTab(val route: String, val label: String, val icon: ImageVector) {
     OVERVIEW(Routes.OVERVIEW, "Overview", CockpitIcons.Gauge),
     SERVICES(Routes.SERVICES, "Services", CockpitIcons.Services),
+    CONTAINERS(Routes.CONTAINERS, "Podman", CockpitIcons.Container),
+    MACHINES(Routes.MACHINES, "VMs", CockpitIcons.Machine),
     LOGS(Routes.LOGS, "Logs", CockpitIcons.Logs),
     TERMINAL(Routes.TERMINAL, "Terminal", CockpitIcons.Terminal),
 }
@@ -192,7 +203,19 @@ private fun SessionRoot(vm: MainViewModel, session: Session, lost: ConnectionSta
     val services by session.services.state.collectAsState()
     val detail by session.services.detail.collectAsState()
     val logs by session.logs.state.collectAsState()
+    val features by session.features.collectAsState()
+    val containers by session.containers.state.collectAsState()
+    val containerDetail by session.containers.detail.collectAsState()
+    val machines by session.machines.state.collectAsState()
+    val machineDetail by session.machines.detail.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+    val tabs = SessionTab.entries.filter {
+        when (it) {
+            SessionTab.CONTAINERS -> features.podman
+            SessionTab.MACHINES -> features.machines
+            else -> true
+        }
+    }
 
     LaunchedEffect(services.message) {
         services.message?.let {
@@ -200,10 +223,23 @@ private fun SessionRoot(vm: MainViewModel, session: Session, lost: ConnectionSta
             session.services.consumeMessage()
         }
     }
+    LaunchedEffect(containers.message) {
+        containers.message?.let {
+            snackbar.showSnackbar(it)
+            session.containers.consumeMessage()
+        }
+    }
+    LaunchedEffect(machines.message) {
+        machines.message?.let {
+            snackbar.showSnackbar(it)
+            session.machines.consumeMessage()
+        }
+    }
 
     SessionChrome(
         server = session.server,
         selected = tab,
+        tabs = tabs,
         failedUnits = overview.failedUnits ?: 0,
         lostMessage = lost?.message,
         snackbar = snackbar,
@@ -226,6 +262,90 @@ private fun SessionRoot(vm: MainViewModel, session: Session, lost: ConnectionSta
                         nav.navigateToTab(Routes.SERVICES)
                     },
                     onPower = session.overview::power,
+                    workloads = Workloads(
+                        podman = features.podman,
+                        machines = features.machines,
+                        containers = containers,
+                        vms = machines,
+                    ),
+                    onOpenContainers = { nav.navigateToTab(Routes.CONTAINERS) },
+                    onOpenMachines = { nav.navigateToTab(Routes.MACHINES) },
+                )
+                LaunchedEffect(features) {
+                    if (features.podman) session.containers.ensureLoaded()
+                    if (features.machines) session.machines.ensureLoaded()
+                }
+            }
+            composable(Routes.CONTAINERS) {
+                DisposableEffect(Unit) {
+                    session.containers.start()
+                    onDispose { session.containers.stop() }
+                }
+                ContainersScreen(
+                    state = containers,
+                    onRefresh = session.containers::refresh,
+                    onFilter = { session.containers.setFilter(it); session.containers.setQuery("") },
+                    onQuery = session.containers::setQuery,
+                    onOpen = {
+                        session.containers.openDetail(it)
+                        nav.navigate(Routes.CONTAINER)
+                    },
+                )
+            }
+            composable(Routes.CONTAINER) {
+                // The list's live stats keep flowing while a container is open.
+                DisposableEffect(Unit) {
+                    session.containers.start()
+                    onDispose {
+                        session.containers.stop()
+                        session.containers.closeDetail()
+                    }
+                }
+                val key = containerDetail?.key
+                val container = containers.containers.firstOrNull { it.key == key }
+                ContainerDetailScreen(
+                    container = container,
+                    detail = containerDetail,
+                    stats = key?.let { containers.stats[it] },
+                    busy = key?.let { containers.busy[it] },
+                    onAction = { action -> container?.let { session.containers.act(it, action) } },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            composable(Routes.MACHINES) {
+                DisposableEffect(Unit) {
+                    session.machines.start()
+                    onDispose { session.machines.stop() }
+                }
+                MachinesScreen(
+                    state = machines,
+                    onRefresh = session.machines::refresh,
+                    onFilter = session.machines::setFilter,
+                    onOpen = {
+                        session.machines.openDetail(it)
+                        nav.navigate(Routes.MACHINE)
+                    },
+                )
+            }
+            composable(Routes.MACHINE) {
+                DisposableEffect(Unit) {
+                    session.machines.start()
+                    onDispose {
+                        session.machines.stop()
+                        session.machines.closeDetail()
+                    }
+                }
+                val key = machineDetail?.key
+                val machine = machines.vms.firstOrNull { it.key == key }
+                MachineDetailScreen(
+                    vm = machine,
+                    usage = key?.let { machines.usage[it] },
+                    addresses = machineDetail?.addresses.orEmpty(),
+                    busy = key?.let { machines.busy[it] },
+                    autostartBusy = key != null && key in machines.autostartBusy,
+                    onAction = { action -> machine?.let { session.machines.act(it, action) } },
+                    onAutostart = { on -> machine?.let { session.machines.setAutostart(it, on) } },
+                    onBack = { nav.popBackStack() },
                 )
             }
             composable(Routes.SERVICES) {
@@ -288,6 +408,7 @@ private fun SessionRoot(vm: MainViewModel, session: Session, lost: ConnectionSta
 fun SessionChrome(
     server: ServerConfig,
     selected: SessionTab?,
+    tabs: List<SessionTab> = SessionTab.entries.filter { it != SessionTab.CONTAINERS && it != SessionTab.MACHINES },
     failedUnits: Int,
     lostMessage: String?,
     snackbar: SnackbarHostState,
@@ -327,7 +448,7 @@ fun SessionChrome(
                         containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.97f),
                         contentColor = MaterialTheme.colorScheme.onSurface,
                     ) {
-                        SessionTab.entries.forEach { tab ->
+                        tabs.forEach { tab ->
                             NavigationBarItem(
                                 selected = selected == tab,
                                 onClick = { onTab(tab) },
@@ -337,7 +458,15 @@ fun SessionChrome(
                                         Icon(tab.icon, contentDescription = null)
                                     }
                                 },
-                                label = { Text(tab.label) },
+                                // Six tabs only fit on a phone with one-line, slightly smaller labels.
+                                label = {
+                                    Text(
+                                        tab.label,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        style = if (tabs.size > 5) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
+                                    )
+                                },
                             )
                         }
                     }

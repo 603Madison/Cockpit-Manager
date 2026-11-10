@@ -3,7 +3,6 @@ package app.cockpitmanager.cockpit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -32,7 +31,7 @@ class DBusClient private constructor(private val channel: CockpitChannel, scope:
             for (event in channel.events) {
                 when (event) {
                     is ChannelEvent.Data -> handle(event.text)
-                    is ChannelEvent.Control -> Unit
+                    is ChannelEvent.Control, is ChannelEvent.Bytes -> Unit
                     is ChannelEvent.Closed -> {
                         val e = CockpitException(Problems.describe(event.problem ?: "disconnected", event.string("message")), event.problem)
                         failure = e
@@ -86,7 +85,7 @@ class DBusClient private constructor(private val channel: CockpitChannel, scope:
         }
         channel.send(JsonObject(message).toString())
         return try {
-            withTimeout(timeoutMillis) { deferred.await() }
+            withTimeoutAsError(timeoutMillis, "$method didn't answer in time") { deferred.await() }
         } finally {
             pending.remove(id)
         }
@@ -96,12 +95,30 @@ class DBusClient private constructor(private val channel: CockpitChannel, scope:
     suspend fun getAll(path: String, iface: String): Map<String, JsonElement> {
         val out = call(path, "org.freedesktop.DBus.Properties", "GetAll", listOf(JsonPrimitive(iface)), "s")
         val dict = out.firstOrNull() as? JsonObject ?: return emptyMap()
-        return dict.mapValues { (_, v) -> (v as? JsonObject)?.get("v") ?: v }
+        return dict.mapValues { (_, v) -> unwrapVariant(v) }
+    }
+
+    /** Sets one property, e.g. setProperty(path, "org.libvirt.Domain", "Autostart", "b", JsonPrimitive(true)). */
+    suspend fun setProperty(path: String, iface: String, name: String, signature: String, value: JsonElement) {
+        call(path, "org.freedesktop.DBus.Properties", "Set", listOf(JsonPrimitive(iface), JsonPrimitive(name), variant(signature, value)), "ssv")
     }
 
     fun close() = channel.close()
 
     companion object {
+        /** Cockpit's JSON form of a D-Bus variant. */
+        fun variant(signature: String, value: JsonElement) = JsonObject(mapOf("t" to JsonPrimitive(signature), "v" to value))
+
+        /**
+         * Strips variant wrappers ({"t": .., "v": ..}), however deep: libvirt-dbus
+         * wraps property values (and GetStats results) in two.
+         */
+        fun unwrapVariant(element: JsonElement): JsonElement {
+            var e = element
+            while (e is JsonObject && e.size == 2 && "t" in e && "v" in e) e = e.getValue("v")
+            return e
+        }
+
         fun open(transport: CockpitTransport, scope: CoroutineScope, name: String, bus: String = "system", superuser: Superuser = Superuser.TRY): DBusClient {
             val channel = transport.channel(
                 mapOf("payload" to JsonPrimitive("dbus-json3"), "bus" to JsonPrimitive(bus), "name" to JsonPrimitive(name)),

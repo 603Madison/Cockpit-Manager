@@ -37,11 +37,12 @@ suspend fun CockpitTransport.run(
     if (input != null) channel.send(input)
     channel.done()
     return try {
-        withTimeout(timeoutMillis) {
+        withTimeoutAsError(timeoutMillis, "${argv.first()} took too long") {
             val out = StringBuilder()
             for (event in channel.events) {
                 when (event) {
                     is ChannelEvent.Data -> out.append(event.text)
+                    is ChannelEvent.Bytes -> out.append(String(event.data, Charsets.UTF_8))
                     is ChannelEvent.Control -> Unit
                     is ChannelEvent.Closed -> {
                         val status = event.int("exit-status")
@@ -54,7 +55,7 @@ suspend fun CockpitTransport.run(
                                 else -> CockpitException(Problems.describe(event.problem, stderr), event.problem)
                             }
                         }
-                        return@withTimeout ProcessResult(out.toString(), status, stderr)
+                        return@withTimeoutAsError ProcessResult(out.toString(), status, stderr)
                     }
                 }
             }
@@ -98,6 +99,7 @@ fun CockpitTransport.stream(
         for (event in channel.events) {
             when (event) {
                 is ChannelEvent.Data -> send(event.text)
+                is ChannelEvent.Bytes -> send(String(event.data, Charsets.UTF_8))
                 is ChannelEvent.Control -> Unit
                 is ChannelEvent.Closed -> {
                     val status = event.int("exit-status")
@@ -114,6 +116,17 @@ fun CockpitTransport.stream(
     }
     awaitClose { channel.close() }
 }
+
+/**
+ * [withTimeout], but running out of time is an ordinary [CockpitException]
+ * rather than a cancellation, so callers report it instead of silently stopping.
+ */
+suspend fun <T> withTimeoutAsError(timeoutMillis: Long, message: String, block: suspend kotlinx.coroutines.CoroutineScope.() -> T): T =
+    try {
+        withTimeout(timeoutMillis, block)
+    } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+        throw CockpitException(message, "timeout", e)
+    }
 
 /** Splits a stream of chunks into complete lines. */
 class LineBuffer {

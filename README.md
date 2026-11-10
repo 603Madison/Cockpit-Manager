@@ -21,6 +21,15 @@ soft gradient, light and dark themes, and optional wallpaper colors.
   explanation. Each service has a detail page with PID, memory, CPU time and its recent log.
 - **Logs** – the system journal by priority (errors, warnings, notices, all), current boot only,
   search, live follow, and older entries on demand.
+- **Podman** – containers through Podman's REST API on the same sockets Cockpit's Podman page
+  (cockpit-podman) uses: your rootless containers and, with administrative access, the system's.
+  Grouped by pod, with live CPU and memory, search, start / stop / restart / pause / resume /
+  delete, and a detail page with ports, networks, volumes, health and live logs. Quadlet containers
+  (systemd services) are controlled through systemd, exactly as cockpit-podman does.
+- **VMs** – virtual machines through libvirt-dbus, the API Cockpit's Virtual machines page
+  (cockpit-machines) uses: OS, vCPUs, memory, disks, network and IP addresses, live CPU use, run,
+  shut down, reboot, pause, resume, force shut down / reboot, and autostart.
+  The Podman and VMs tabs only appear on servers that have them.
 - **Terminal** – your login shell in a real pseudo-terminal, with an xterm-compatible screen
   (colors, cursor addressing, the alternate screen), so `top`, `less`, `nano` and `vim` work. A key
   row gives Esc, Tab, Ctrl, arrows and Page Up/Down; hardware keyboards work too.
@@ -81,6 +90,8 @@ the `RELEASE_KEYSTORE_BASE64` / `RELEASE_KEYSTORE_PASSWORD` repository secrets.
 - `ScreenshotTest` renders every screen with Robolectric to `app/build/outputs/screenshots/`.
 - `LiveCockpitTest` runs the real client against a real Cockpit when these are set (skipped
   otherwise): sign-in, processes, D-Bus, live metrics, sudo, and an interactive shell.
+  `LiveWorkloadsTest` does the same for Podman (containers, logs, stats, actions) and libvirt-dbus
+  (listing, stats, pause/resume, autostart, power) when those are installed.
 
   ```sh
   COCKPIT_LIVE_URL=http://127.0.0.1:9090 COCKPIT_LIVE_USER=tester COCKPIT_LIVE_PASSWORD=… \
@@ -92,8 +103,9 @@ the `RELEASE_KEYSTORE_BASE64` / `RELEASE_KEYSTORE_PASSWORD` repository secrets.
 ```
 app/src/main/kotlin/app/cockpitmanager/
   cockpit/   Cockpit protocol: login, certificate trust, WebSocket transport, channels,
-             processes, D-Bus, metrics
-  system/    What the screens show: host facts, systemd services, the journal, power
+             processes, D-Bus, metrics, HTTP over the server's unix sockets
+  system/    What the screens show: host facts, systemd services, the journal, power,
+             Podman (as cockpit-podman) and libvirt-dbus (as cockpit-machines)
   terminal/  The xterm-compatible screen model and the pty session
   data/      Server list and settings (DataStore), Keystore-encrypted passwords
   ui/        Compose screens, theme (Lexend, colors) and shared components
