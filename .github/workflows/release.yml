@@ -1,0 +1,110 @@
+name: Release
+
+# Builds the signed APK and publishes it as a GitHub release, with notes from the
+# matching CHANGELOG.md section. Start it from the Actions tab ("Run workflow")
+# with the version (it must match versionName in app/build.gradle.kts).
+# Signing uses the RELEASE_KEYSTORE_* repository secrets, as in the other apps.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. v1.0.0 (must match versionName in app/build.gradle.kts)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+
+env:
+  TAG: ${{ inputs.version }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          # Don't leave the write token in .git/config, where the Gradle build (and its plugins) could read it.
+          persist-credentials: false
+
+      # The version reaches the script only through env and is checked before use.
+      - name: Check version
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Version must look like v1.2.3 (or v1.2.3-beta.1)"
+            exit 1
+          fi
+          VERSION_NAME=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
+          if [ "v$VERSION_NAME" != "$TAG" ]; then
+            echo "::error::$TAG doesn't match versionName $VERSION_NAME in app/build.gradle.kts"
+            exit 1
+          fi
+          echo "COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - name: Install Android SDK platform and build tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Run tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'cockpitmanager' }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Add RELEASE_KEYSTORE_BASE64 and RELEASE_KEYSTORE_PASSWORD under Settings > Secrets and variables > Actions > Repository secrets"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/release.jks"
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass:env KEYSTORE_PASSWORD -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::The keystore couldn't be opened: check that RELEASE_KEYSTORE_BASE64 was pasted completely and the password matches"
+            exit 1
+          fi
+          echo "RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "CockpitManager-${TAG}.apk"
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "CockpitManager-${TAG}.apk"
+          sha256sum CockpitManager-*.apk | tee SHA256SUMS.txt
+
+      - name: Release notes
+        run: |
+          awk -v tag="${TAG#v}" '
+            $0 ~ "^## \\[" tag "\\]" {found=1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md > release-notes.md
+          [ -s release-notes.md ] || echo "See CHANGELOG.md." > release-notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" CockpitManager-*.apk SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" CockpitManager-*.apk SHA256SUMS.txt --target "$COMMIT" \
+              --title "Cockpit Manager ${TAG}" --notes-file release-notes.md \
+              $(echo "$TAG" | grep -q -- '-' && echo --prerelease)
+          fi

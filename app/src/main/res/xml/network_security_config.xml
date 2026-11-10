@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      The app only ever talks to Cockpit servers the user adds themselves.
+      Cleartext is permitted by the platform solely so a server on the home
+      network can be reached at e.g. http://192.168.1.20:9090/. The app adds
+      its own stricter policy on top (ServerUrl): http:// is refused for
+      anything that is not a private-network address, so passwords never cross
+      the internet unencrypted.
+      User-installed CAs are trusted so a server with a private CA can use
+      HTTPS. Cockpit's default self-signed certificate is handled by the app's
+      trust-on-first-use pinning (PinningTrustManager), which shows the
+      fingerprint and asks before trusting it.
+    -->
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" tools:ignore="AcceptsUserCertificates" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
