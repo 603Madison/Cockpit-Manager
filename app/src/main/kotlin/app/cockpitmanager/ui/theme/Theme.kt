@@ -29,15 +29,28 @@ import androidx.compose.ui.unit.sp
 import app.cockpitmanager.R
 import app.cockpitmanager.data.ThemeMode
 
+/** How much heavier "Bold text" draws everything: the same +300 Android's own Bold text setting adds. */
+private const val BOLD_SHIFT = 300
+
+/** The heaviest weight Bold text reaches, as with Android's setting on the app's original Lexend family. */
+private const val BOLD_CAP = 700
+
 /**
  * Lexend, the app's typeface (SIL Open Font License; see licenses/Lexend-OFL.txt).
- * One variable font file covers every weight.
+ * One variable font file covers every weight. With [bold], each weight is
+ * drawn heavier (Regular as Bold, Light as SemiBold, titles as Bold), matching
+ * how the app looks under Android's Bold text setting, so the look no longer
+ * depends on that setting (MainActivity switches the system adjustment off).
  */
-val Lexend: FontFamily = FontFamily(
-    listOf(FontWeight.Light, FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold).map { w ->
-        Font(R.font.lexend, weight = w, variationSettings = FontVariation.Settings(FontVariation.weight(w.weight)))
+fun lexend(bold: Boolean): FontFamily = FontFamily(
+    (100..900 step 100).map { weight ->
+        val drawn = if (bold) (weight + BOLD_SHIFT).coerceAtMost(BOLD_CAP) else weight
+        Font(R.font.lexend, weight = FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(drawn)))
     },
 )
+
+val Lexend: FontFamily = lexend(bold = false)
+val LexendBold: FontFamily = lexend(bold = true)
 
 /** The light scheme: teal and cyan accents over the same cool slate neutrals as the other apps. */
 val BrandLightColors = lightColorScheme(
@@ -107,7 +120,7 @@ val BrandDarkColors = darkColorScheme(
 private val Base = Typography()
 
 /** Material's scale with the same weights as the other apps, all in Lexend. */
-private val AppTypography: Typography = Typography(
+private val BaseTypography: Typography = Typography(
     displayLarge = Base.displayLarge.copy(fontWeight = FontWeight.Light, fontSize = 64.sp, lineHeight = 68.sp, letterSpacing = (-1.5).sp),
     displayMedium = Base.displayMedium.copy(fontWeight = FontWeight.Light),
     headlineMedium = Base.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -115,7 +128,10 @@ private val AppTypography: Typography = Typography(
     titleLarge = Base.titleLarge.copy(fontWeight = FontWeight.SemiBold),
     titleMedium = Base.titleMedium.copy(fontWeight = FontWeight.SemiBold),
     labelLarge = Base.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-).withFamily(Lexend)
+)
+
+private val RegularTypography = BaseTypography.withFamily(Lexend)
+private val BoldTypography = BaseTypography.withFamily(LexendBold)
 
 fun Typography.withFamily(family: FontFamily): Typography {
     fun TextStyle.f() = copy(fontFamily = family)
@@ -167,7 +183,7 @@ fun isAppInDarkTheme(mode: ThemeMode): Boolean = when (mode) {
 }
 
 @Composable
-fun CockpitTheme(darkTheme: Boolean, dynamicColor: Boolean = false, content: @Composable () -> Unit) {
+fun CockpitTheme(darkTheme: Boolean, dynamicColor: Boolean = false, boldText: Boolean = true, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val wallpaper = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val colors = when {
@@ -186,6 +202,11 @@ fun CockpitTheme(darkTheme: Boolean, dynamicColor: Boolean = false, content: @Co
         LocalStatusColors provides if (darkTheme) DarkStatus else LightStatus,
         LocalBackdrop provides backdrop,
     ) {
-        MaterialTheme(colorScheme = colors, typography = AppTypography, shapes = AppShapes, content = content)
+        MaterialTheme(
+            colorScheme = colors,
+            typography = if (boldText) BoldTypography else RegularTypography,
+            shapes = AppShapes,
+            content = content,
+        )
     }
 }

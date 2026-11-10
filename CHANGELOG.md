@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0]
+
+- **Bold text by default**: Lexend is drawn heavier throughout (body text in Bold, the big numbers
+  in SemiBold), the look the app had under Android's Bold text setting, now regardless of that
+  setting. Android's own Bold text no longer changes the app or stacks on top. Turn it off under
+  Settings → Appearance → Bold text.
+
 ## [1.1.0]
 
 - **Podman containers**, through the same Podman API and sockets as Cockpit's own Podman page

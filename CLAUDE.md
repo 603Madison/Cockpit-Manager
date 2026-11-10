@@ -7,6 +7,11 @@ all text (`ui/theme/Theme.kt`), Material 3, cards with 20dp corners on `surfaceC
 title inside in `titleSmall`, transparent top bars over the gradient `Backdrop`, and the shared
 components in `ui/components/Common.kt` rather than new one-offs.
 
+Bold text is the owner's chosen default: `lexend(bold = true)` draws every weight 300 heavier
+(capped at 700), exactly how the app looked under Android's Bold text setting (`BoldTextTest`
+checks it pixel for pixel), and `MainActivity` switches the system's font weight adjustment off so
+the look doesn't depend on that setting. Pick weights for the regular design; bold follows.
+
 ## Checks before pushing
 
 ```sh

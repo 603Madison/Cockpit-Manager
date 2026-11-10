@@ -6,8 +6,9 @@ same way Cockpit's own web page does and speaks Cockpit's protocol over its WebS
 nothing to install on the server beyond Cockpit itself.
 
 Built with Jetpack Compose and Material 3 in the same design language as the other apps
-(SuperAwesomeMagicalWeather, SuperAwesomeMagicalMusic): Lexend throughout, rounded cards over a
-soft gradient, light and dark themes, and optional wallpaper colors.
+(SuperAwesomeMagicalWeather, SuperAwesomeMagicalMusic): Lexend throughout (bold by default, with a
+switch in Settings), rounded cards over a soft gradient, light and dark themes, and optional
+wallpaper colors.
 
 ## What it does
 

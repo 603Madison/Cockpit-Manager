@@ -24,6 +24,12 @@ fun SettingsScreen(
     PageScaffold("Settings", onBack) {
         SectionCard("Appearance") {
             ChoiceDropdown("Light or dark", ThemeMode.entries, settings.themeMode, { it.label }, { mode -> onUpdate { it.copy(themeMode = mode) } })
+            LabeledSwitch(
+                title = "Bold text",
+                subtitle = "Heavier Lexend throughout the app, whatever Android's own Bold text setting is",
+                checked = settings.boldText,
+                onCheckedChange = { on -> onUpdate { it.copy(boldText = on) } },
+            )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 LabeledSwitch(
                     title = "Wallpaper colors",

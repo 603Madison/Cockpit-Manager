@@ -1,7 +1,11 @@
 package app.cockpitmanager
 
+import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
+import android.view.ContextThemeWrapper
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -16,6 +20,17 @@ import app.cockpitmanager.ui.theme.CockpitTheme
 import app.cockpitmanager.ui.theme.isAppInDarkTheme
 
 class MainActivity : ComponentActivity() {
+    /**
+     * The app draws its own bold Lexend (Settings → Appearance → Bold text),
+     * so Android's Bold text setting, which adds 300 to every font weight, is
+     * switched off here: otherwise the two would stack, and the look would
+     * depend on a system setting. Applies to this activity's dialogs and menus too.
+     */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(newBase)
+        ignoreSystemBoldText(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -31,8 +46,17 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
 
-            CockpitTheme(darkTheme = dark, dynamicColor = settings.dynamicColor) {
+            CockpitTheme(darkTheme = dark, dynamicColor = settings.dynamicColor, boldText = settings.boldText) {
                 AppRoot(vm)
+            }
+        }
+    }
+
+    companion object {
+        /** Switches Android's font weight adjustment (Bold text) off; call from attachBaseContext. */
+        fun ignoreSystemBoldText(activity: ContextThemeWrapper) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                activity.applyOverrideConfiguration(Configuration().apply { fontWeightAdjustment = 0 })
             }
         }
     }

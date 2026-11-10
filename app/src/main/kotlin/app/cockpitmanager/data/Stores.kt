@@ -47,6 +47,8 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = false,
     val terminalTextSize: TerminalTextSize = TerminalTextSize.MEDIUM,
+    /** Heavier Lexend throughout, whatever Android's own Bold text setting is. */
+    val boldText: Boolean = true,
 )
 
 interface ServerStore {
@@ -93,26 +95,24 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
     private val themeKey = stringPreferencesKey("theme_mode")
     private val dynamicKey = booleanPreferencesKey("dynamic_color")
     private val terminalSizeKey = intPreferencesKey("terminal_text_size")
+    private val boldKey = booleanPreferencesKey("bold_text")
 
-    override val settings: Flow<AppSettings> = store.data.map { p ->
-        AppSettings(
-            themeMode = ThemeMode.entries.firstOrNull { it.name == p[themeKey] } ?: ThemeMode.SYSTEM,
-            dynamicColor = p[dynamicKey] ?: false,
-            terminalTextSize = TerminalTextSize.entries.getOrNull(p[terminalSizeKey] ?: -1) ?: TerminalTextSize.MEDIUM,
-        )
-    }
+    private fun read(p: Preferences) = AppSettings(
+        themeMode = ThemeMode.entries.firstOrNull { it.name == p[themeKey] } ?: ThemeMode.SYSTEM,
+        dynamicColor = p[dynamicKey] ?: false,
+        terminalTextSize = TerminalTextSize.entries.getOrNull(p[terminalSizeKey] ?: -1) ?: TerminalTextSize.MEDIUM,
+        boldText = p[boldKey] ?: true,
+    )
+
+    override val settings: Flow<AppSettings> = store.data.map(::read)
 
     override suspend fun update(transform: (AppSettings) -> AppSettings) {
         store.edit { p ->
-            val current = AppSettings(
-                themeMode = ThemeMode.entries.firstOrNull { it.name == p[themeKey] } ?: ThemeMode.SYSTEM,
-                dynamicColor = p[dynamicKey] ?: false,
-                terminalTextSize = TerminalTextSize.entries.getOrNull(p[terminalSizeKey] ?: -1) ?: TerminalTextSize.MEDIUM,
-            )
-            val next = transform(current)
+            val next = transform(read(p))
             p[themeKey] = next.themeMode.name
             p[dynamicKey] = next.dynamicColor
             p[terminalSizeKey] = next.terminalTextSize.ordinal
+            p[boldKey] = next.boldText
         }
     }
 }
