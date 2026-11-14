@@ -154,7 +154,8 @@ fun renderLine(line: TerminalEmulator.Line, cursorCol: Int?): AnnotatedString = 
 
 @Composable
 fun TerminalScreen(session: TerminalSession, fontSizeSp: Float, modifier: Modifier = Modifier) {
-    val version by session.version.collectAsState()
+    // Draw the published frame, never the live emulator: it can change under a layout pass.
+    val frame by session.frame.collectAsState()
     val state by session.state.collectAsState()
     val emulator = session.emulator
     val listState = rememberLazyListState()
@@ -176,10 +177,10 @@ fun TerminalScreen(session: TerminalSession, fontSizeSp: Float, modifier: Modifi
     }
 
     // Follow new output unless the user has scrolled back.
-    LaunchedEffect(version) {
-        val total = emulator.lineCount
+    LaunchedEffect(frame) {
+        val total = frame.lineCount
         val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (total > 0 && (lastVisible >= total - emulator.rows - 2 || !listState.canScrollForward)) {
+        if (total > 0 && (lastVisible >= total - frame.rows - 2 || !listState.canScrollForward)) {
             listState.scrollToItem(total - 1)
         }
     }
@@ -187,7 +188,7 @@ fun TerminalScreen(session: TerminalSession, fontSizeSp: Float, modifier: Modifi
     Column(modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                emulator.title.ifBlank { "Shell" }.also { version },
+                frame.title.ifBlank { "Shell" },
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -211,10 +212,15 @@ fun TerminalScreen(session: TerminalSession, fontSizeSp: Float, modifier: Modifi
             LaunchedEffect(rows, cols, state is TerminalSession.State.Idle) {
                 if (state is TerminalSession.State.Idle) session.start(rows, cols) else session.resize(rows, cols)
             }
+            val running = state is TerminalSession.State.Running
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(10.dp)) {
-                items(count = emulator.lineCount) { index ->
-                    val cursor = if (index == emulator.cursorLineIndex && emulator.cursorVisible && state is TerminalSession.State.Running) emulator.cursorCol else null
-                    val line = remember(version, index, emulator.lineCount) { renderLine(emulator.line(index), cursor) }
+                // Everything below reads this one immutable frame, so count and lines always agree.
+                val shown = frame
+                items(count = shown.lineCount) { index ->
+                    val source = shown.lines[index]
+                    val cursor = if (index == shown.cursorLine && shown.cursorVisible && running) shown.cursorCol else null
+                    // Scrollback lines are shared between frames, so they aren't re-rendered on every output.
+                    val line = remember(source, cursor) { renderLine(source, cursor) }
                     Text(line, style = textStyle, softWrap = false, maxLines = 1)
                 }
             }

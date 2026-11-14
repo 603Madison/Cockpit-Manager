@@ -123,6 +123,16 @@ class TerminalEmulatorTest {
     }
 
     @Test
+    fun resizeDuringFullScreenProgramKeepsThePromptBelow() {
+        val t = term(rows = 10, cols = 20)
+        t.feed("a\r\nb\r\nc\r\nd\r\n$ less\r\n")
+        t.feed("\u001b[?1049h\u001b[H\u001b[2Jpager") // less starts
+        t.resize(4, 20) // the keyboard opens
+        t.feed("\u001b[?1049l$ ") // less quits; the shell prints its prompt
+        assertEquals("c\nd\n$ less\n$", t.screenText())
+    }
+
+    @Test
     fun keysFollowCursorKeyMode() {
         val t = term()
         assertEquals("\u001b[A", t.encode(TerminalEmulator.Key.UP))

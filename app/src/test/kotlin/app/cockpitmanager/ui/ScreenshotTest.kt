@@ -315,7 +315,7 @@ class ScreenshotTest {
         val session = TerminalSession(transport, scope)
         session.start(rows = 30, cols = 46)
         val esc = "\u001b"
-        session.emulator.feed(
+        session.receive(
             "$esc]0;admin@atlas:~\u0007" +
                 "[admin@atlas ~]$ systemctl status sshd --no-pager\r\n" +
                 "$esc[0;1;32m●$esc[0m sshd.service - OpenSSH server daemon\r\n" +

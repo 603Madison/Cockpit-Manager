@@ -52,6 +52,12 @@ class TerminalEmulator(rows: Int = 24, cols: Int = 80, private val scrollbackLim
 
         /** The text with trailing spaces removed. */
         fun text(): String = String(chars).trimEnd()
+
+        /** An independent copy, for [TerminalFrame]. */
+        fun copy(): Line = Line(0).also {
+            it.chars = chars.copyOf()
+            it.styles = styles.copyOf()
+        }
     }
 
     var rows = rows.coerceAtLeast(2)
@@ -120,6 +126,25 @@ class TerminalEmulator(rows: Int = 24, cols: Int = 80, private val scrollbackLim
 
     /** [cursorRow] as an index for [line]. */
     val cursorLineIndex: Int get() = if (usingAlternateScreen) cursorRow else scrollback.size + cursorRow
+
+    /**
+     * A frozen picture of everything a view shows, safe to draw while the
+     * emulator keeps changing. Screen lines are copied; scrollback lines are
+     * shared, since they never change once they've scrolled off.
+     */
+    fun frame(): TerminalFrame {
+        val screenCopy = screen.map { it.copy() }
+        val lines = if (usingAlternateScreen) screenCopy else scrollback.toList() + screenCopy
+        return TerminalFrame(
+            lines = lines,
+            cursorLine = cursorLineIndex,
+            cursorCol = cursorCol,
+            cursorVisible = cursorVisible,
+            rows = rows,
+            title = title,
+            version = version,
+        )
+    }
 
     /** The visible screen as plain text, for tests and copying. */
     fun screenText(): String = screen.joinToString("\n") { it.text() }.trimEnd('\n')
@@ -529,10 +554,17 @@ class TerminalEmulator(rows: Int = 24, cols: Int = 80, private val scrollbackLim
         if (r == rows && c == cols) return false
         for (lines in listOf(mainLines, altLines)) {
             val active = lines === screen
+            // While a full-screen program has the alternate screen, the shell's cursor is parked in `saved`
+            // and has to follow its lines too, or the prompt comes back drawn over the line above.
+            val parked = !active && lines === mainLines && usingAlternateScreen
+            var cursor = when {
+                active -> cursorRow
+                parked -> saved.row
+                else -> -1
+            }
             lines.forEach { it.resize(c) }
             while (lines.size > r) {
-                val cursorOnLast = active && cursorRow >= lines.size - 1
-                if (!cursorOnLast && lines.last().isBlank()) {
+                if (cursor < lines.size - 1 && lines.last().isBlank()) {
                     lines.removeAt(lines.size - 1)
                 } else {
                     val removed = lines.removeAt(0)
@@ -540,10 +572,11 @@ class TerminalEmulator(rows: Int = 24, cols: Int = 80, private val scrollbackLim
                         scrollback.addLast(removed)
                         while (scrollback.size > scrollbackLimit) scrollback.removeFirst()
                     }
-                    if (active) cursorRow--
+                    if (cursor >= 0) cursor--
                 }
             }
             while (lines.size < r) lines.add(Line(c))
+            if (active) cursorRow = cursor else if (parked) saved = saved.copy(row = cursor)
         }
         rows = r
         cols = c
@@ -608,4 +641,21 @@ class TerminalEmulator(rows: Int = 24, cols: Int = 80, private val scrollbackLim
 
         private fun Style.blank(): Style = if (bg == DEFAULT && !inverse) Style.PLAIN else Style(bg = bg, inverse = inverse)
     }
+}
+
+/** An immutable picture of the terminal; see [TerminalEmulator.frame]. */
+class TerminalFrame(
+    val lines: List<TerminalEmulator.Line>,
+    /** Index into [lines] of the cursor's line. */
+    val cursorLine: Int,
+    val cursorCol: Int,
+    val cursorVisible: Boolean,
+    /** Rows on the visible screen (the last [rows] of [lines]). */
+    val rows: Int,
+    val title: String,
+    val version: Long,
+) {
+    val lineCount: Int get() = lines.size
+
+    fun allText(): String = lines.joinToString("\n") { it.text() }.trimEnd('\n')
 }

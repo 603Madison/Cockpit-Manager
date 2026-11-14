@@ -16,8 +16,10 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * An interactive login shell on the server, in a pseudo-terminal, as
- * Cockpit's Terminal page runs it. Output goes into [emulator]; [version]
- * changes whenever the screen does.
+ * Cockpit's Terminal page runs it. Output goes into [emulator]; views draw
+ * [frame], an immutable copy published after every change, never the live
+ * emulator (which can shrink under a view mid-layout: clear, resize,
+ * full-screen programs).
  */
 class TerminalSession(private val transport: CockpitTransport, private val scope: CoroutineScope) {
     sealed interface State {
@@ -28,8 +30,8 @@ class TerminalSession(private val transport: CockpitTransport, private val scope
 
     val emulator = TerminalEmulator(24, 80)
 
-    private val _version = MutableStateFlow(0L)
-    val version: StateFlow<Long> = _version.asStateFlow()
+    private val _frame = MutableStateFlow(emulator.frame())
+    val frame: StateFlow<TerminalFrame> = _frame.asStateFlow()
 
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
@@ -41,6 +43,7 @@ class TerminalSession(private val transport: CockpitTransport, private val scope
         stop()
         emulator.reset()
         emulator.resize(rows, cols)
+        publish()
         val ch = transport.channel(
             mapOf(
                 "payload" to JsonPrimitive("stream"),
@@ -56,10 +59,7 @@ class TerminalSession(private val transport: CockpitTransport, private val scope
         reader = scope.launch {
             for (event in ch.events) {
                 when (event) {
-                    is ChannelEvent.Data -> {
-                        emulator.feed(event.text)
-                        _version.value = emulator.version
-                    }
+                    is ChannelEvent.Data -> receive(event.text)
                     is ChannelEvent.Control, is ChannelEvent.Bytes -> Unit
                     is ChannelEvent.Closed -> {
                         val status = event.int("exit-status")
@@ -76,6 +76,16 @@ class TerminalSession(private val transport: CockpitTransport, private val scope
         }
     }
 
+    /** Output from the shell: into the screen, then publish the new picture. */
+    internal fun receive(text: String) {
+        emulator.feed(text)
+        publish()
+    }
+
+    private fun publish() {
+        _frame.value = emulator.frame()
+    }
+
     fun send(text: String) {
         if (text.isNotEmpty()) channel?.send(text)
     }
@@ -84,7 +94,7 @@ class TerminalSession(private val transport: CockpitTransport, private val scope
 
     fun resize(rows: Int, cols: Int) {
         if (emulator.resize(rows, cols)) {
-            _version.value = emulator.version
+            publish()
             channel?.control("options", mapOf("window" to window(emulator.rows, emulator.cols)))
         }
     }

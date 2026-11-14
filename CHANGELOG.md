@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1]
+
+- **Fixed: the Terminal tab crashed the app.** The screen read the terminal's lines while they were
+  still changing (the shell starting, the keyboard resizing the screen, `clear`, full-screen
+  programs), and could ask for a line that had just gone. It now draws from a fixed copy made
+  after each change.
+- Fixed: after resizing the screen while `less`, `vim` or another full-screen program was open,
+  the shell's prompt came back drawn over the line above it.
+
 ## [1.2.0]
 
 - **Bold text by default**: Lexend is drawn heavier throughout (body text in Bold, the big numbers

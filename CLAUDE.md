@@ -19,6 +19,10 @@ the look doesn't depend on that setting. Pick weights for the regular design; bo
 ```
 
 Look at the PNGs `ScreenshotTest` writes to `app/build/outputs/screenshots/` after UI changes.
+
+The terminal UI must only draw `TerminalSession.frame` (an immutable `TerminalFrame`), never the
+live `TerminalEmulator`: lazy layout can read lines after the emulator has shrunk (1.2.1's crash).
+`TerminalScreenTest` and `LiveTerminalScreenTest` cover opening, resizing, `clear`, `top` and `less`.
 Bump `versionCode` and `versionName` in `app/build.gradle.kts` and add a `CHANGELOG.md` section for
 each release.
 

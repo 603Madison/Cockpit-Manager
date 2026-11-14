@@ -101,7 +101,7 @@ class LiveCockpitTest {
         terminal.start(rows = 24, cols = 80)
         delay(800)
         terminal.send("echo hello-\$((40+2)); printf '\\033[1;31mred\\033[0m\\n'\r")
-        terminal.version.first { terminal.emulator.allText().contains("hello-42") }
+        terminal.frame.first { it.allText().contains("hello-42") }
         val text = terminal.emulator.allText()
         assertTrue(text.contains("hello-42"), text)
         terminal.send("exit\r")
